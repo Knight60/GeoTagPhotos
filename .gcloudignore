@@ -1,0 +1,38 @@
+# This file specifies files that are *not* uploaded to Google Cloud Platform
+# using gcloud. It follows the same syntax as .gitignore, with the addition of
+# "#!include" directives.
+
+.gcloudignore
+.git
+.gitignore
+
+# Include all rules from .gitignore
+#!include:.gitignore
+
+# --------------------------------------------------------------------------------
+# Important Note for Deployments:
+# If you build your frontend locally and need to upload the compiled "dist" folder
+# to Google Cloud (e.g., App Engine), you must UN-IGNORE it by uncommenting
+# the following lines:
+# !client/dist/
+# !dist/
+# --------------------------------------------------------------------------------
+
+# Google Cloud Specific
+cloudbuild.yaml
+.dockerignore
+Dockerfile
+
+# Secrets and Local Credentials
+*.pem
+*.key
+*.p12
+*.json.key
+
+# Explicitly ignore node_modules
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Explicitly ignore local caches
+server/catalog-cache.json
