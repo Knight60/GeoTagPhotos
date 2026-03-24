@@ -102,21 +102,27 @@ body {
 
 .filters {
   display: flex;
-  gap: 0.5rem;
-  padding: 1rem 1.5rem;
+  gap: 0.4rem;
+  padding: 1rem;
   border-bottom: 1px solid var(--border-glass);
 }
 
 .filter-btn {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-glass);
   color: var(--text-main);
-  padding: 0.5rem 1rem;
+  padding: 0.4rem 0.25rem;
   border-radius: 20px;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
   font-family: inherit;
+  white-space: nowrap;
 }
 
 .filter-btn:hover {
@@ -145,6 +151,24 @@ body {
   width: 50%;
   padding: 0.5rem;
   box-sizing: border-box;
+}
+
+/* Date separator spans full width */
+.catalog-grid-item:has(.date-separator) {
+  width: 100% !important;
+  padding: 0.25rem 0.75rem;
+}
+
+.date-separator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.25rem;
+  color: var(--accent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-glass);
 }
 
 .catalog-item {
@@ -183,6 +207,12 @@ body {
   box-shadow: 0 8px 20px rgba(0,0,0,0.4);
   border-color: rgba(255, 255, 255, 0.2);
   z-index: 2;
+}
+
+.catalog-item-active {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(16, 185, 129, 0.3) !important;
+  z-index: 3;
 }
 
 .catalog-item-info {
@@ -254,6 +284,8 @@ body {
   justify-content: space-between;
   align-items: center;
   background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+  z-index: 10;
+  position: relative;
 }
 
 .viewer-title {
@@ -313,6 +345,7 @@ body {
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
+  z-index: 10;
 }
 .viewer-nav:hover {
   background: rgba(255,255,255,0.2);
@@ -359,11 +392,22 @@ body {
   border-color: #ef4444; /* red for video */
 }
 
+.custom-marker.pano {
+  border-color: #ea580c; /* orange for panorama */
+}
+
 .custom-marker.active {
   transform: scale(1.4) translateY(-6px);
   border-color: var(--accent);
   z-index: 1001 !important;
   box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.3), 0 8px 16px rgba(0,0,0,0.5);
+}
+
+.pano-viewer {
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 /* Tooltip UI overlay on map top right */

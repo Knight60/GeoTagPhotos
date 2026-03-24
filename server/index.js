@@ -5,20 +5,17 @@ const exifr = require('exifr');
 const path = require('path');
 const fs = require('fs');
 
+const config = require('./config.json');
+
 const app = express();
 app.use(cors());
 
 // Serve the overarching directory where the files are stored
 // This allows the frontend to access them via /media/...
-app.use('/media', express.static('E:/@ UAVs'));
+app.use('/media', express.static(config.mediaBaseDir));
 
 // Target directories
-const targetDirs = [
-  'E:/@ UAVs/DJI-Mini3 Pro @ 20260212',
-  'E:/@ UAVs/DJI-Mini3 Pro @ 20260213',
-  'E:/@ UAVs/DJI-Mini3 Pro @ 20260214',
-  'E:/@ UAVs/DJI-Mini3 Pro @ 20260215',
-];
+const targetDirs = config.targetDirs;
 
 // Helper to convert Windows path backslashes to forward slashes for fast-glob
 const normalizePath = (p) => p.replace(/\\/g, '/');
@@ -37,10 +34,14 @@ app.get('/api/catalog', async (req, res) => {
       return res.json(JSON.parse(cachedData));
     }
 
+    // 🌟 Read config dynamically on every refresh so we don't need to restart the server
+    const currentConfig = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
+
     console.log('Fetching catalog and reading EXIF data (this may take a while)...');
+    console.log('Target directories from config:', currentConfig.targetDirs);
     const catalog = [];
 
-    for (const dir of targetDirs) {
+    for (const dir of currentConfig.targetDirs) {
       if (!fs.existsSync(dir)) {
         console.warn(`Directory not found: ${dir}`);
         continue;
@@ -48,6 +49,7 @@ app.get('/api/catalog', async (req, res) => {
 
       const globPattern = normalizePath(path.join(dir, '**/*.{jpg,jpeg,mp4,JPG,JPEG,MP4}'));
       const files = await fg(globPattern, { absolute: true });
+      console.log(`Directory: ${dir}, Pattern: ${globPattern}, Found: ${files.length} files`);
 
       // We process files in chunks to avoid blocking but allow some concurrency
       const chunkSize = 50;
@@ -55,7 +57,9 @@ app.get('/api/catalog', async (req, res) => {
         const chunk = files.slice(i, i + chunkSize);
 
         await Promise.all(chunk.map(async (file) => {
-          const urlPath = file.substring('E:/@ UAVs/'.length); // get relative path
+          // get relative path (handle potential trailing slash in config)
+          const baseLen = currentConfig.mediaBaseDir.endsWith('/') ? currentConfig.mediaBaseDir.length : currentConfig.mediaBaseDir.length + 1;
+          const urlPath = file.substring(baseLen);
           const ext = path.extname(file).toLowerCase();
           const isVideo = ext === '.mp4';
 
@@ -63,6 +67,7 @@ app.get('/api/catalog', async (req, res) => {
           let lng = null;
           let date = null;
           let yaw = null;
+          let isPano = false;
 
           try {
             if (!isVideo) {
@@ -77,6 +82,7 @@ app.get('/api/catalog', async (req, res) => {
                 if (metadata.DateTimeOriginal) date = metadata.DateTimeOriginal;
                 if (metadata.GimbalYawDegree !== undefined) yaw = metadata.GimbalYawDegree;
                 else if (metadata.FlightYawDegree !== undefined) yaw = metadata.FlightYawDegree;
+                if (metadata.ProjectionType === 'equirectangular') isPano = true;
               }
               if (!date) {
                 const stat = fs.statSync(file);
@@ -100,6 +106,7 @@ app.get('/api/catalog', async (req, res) => {
             lng,
             yaw,
             date,
+            isPano,
           });
         }));
       }
@@ -119,7 +126,7 @@ app.get('/api/catalog', async (req, res) => {
   }
 });
 
-const PORT = 3001;
+const PORT = 3002;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

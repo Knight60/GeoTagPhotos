@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@photo-sphere-viewer/core": "^5.14.1",
     "@types/leaflet.markercluster": "^1.5.6",
     "default-passive-events": "^4.0.0",
     "leaflet": "^1.9.4",
@@ -19,6 +20,7 @@
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
     "react-leaflet-cluster": "^4.0.0",
+    "react-photo-sphere-viewer": "^6.2.3",
     "react-virtuoso": "^4.18.3",
     "supercluster": "^8.0.1",
     "use-supercluster": "^1.2.0"
