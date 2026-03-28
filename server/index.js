@@ -4,6 +4,8 @@ const fg = require('fast-glob');
 const exifr = require('exifr');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+const sharp = require('sharp');
 
 const config = require('./config.json');
 
@@ -22,6 +24,12 @@ const normalizePath = (p) => p.replace(/\\/g, '/');
 
 const CACHE_FILE = path.join(__dirname, 'catalog-cache.json');
 
+// Ensure thumbnails cache directory exists
+const THUMB_CACHE_DIR = path.join(__dirname, 'thumbs');
+if (!fs.existsSync(THUMB_CACHE_DIR)) {
+  fs.mkdirSync(THUMB_CACHE_DIR, { recursive: true });
+}
+
 // API endpoint to get catalog
 app.get('/api/catalog', async (req, res) => {
   try {
@@ -30,8 +38,19 @@ app.get('/api/catalog', async (req, res) => {
     // 1. Try to load from cache if not forcing refresh
     if (!forceRefresh && fs.existsSync(CACHE_FILE)) {
       console.log('Serving catalog from cache...');
-      const cachedData = fs.readFileSync(CACHE_FILE, 'utf-8');
-      return res.json(JSON.parse(cachedData));
+      let cachedData = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+      
+      // Auto-inject thumbUrl if missing from old cache to ensure thumbnails always work
+      if (cachedData.length > 0 && !cachedData[0].thumbUrl) {
+          cachedData = cachedData.map(item => ({
+              ...item,
+              thumbUrl: item.type === 'video' ? item.url : item.url.replace('/media/', '/api/thumb/')
+          }));
+          // Optionally, re-save the cache so we don't map it every time
+          fs.writeFileSync(CACHE_FILE, JSON.stringify(cachedData));
+      }
+      
+      return res.json(cachedData);
     }
 
     // 🌟 Read config dynamically on every refresh so we don't need to restart the server
@@ -89,8 +108,35 @@ app.get('/api/catalog', async (req, res) => {
                 date = stat.mtime;
               }
             } else {
-              const stat = fs.statSync(file);
-              date = stat.mtime;
+              // Try to read GPS from companion SRT file (DJI format)
+              const srtPath = file.replace(/\.mp4$/i, '.SRT');
+              if (fs.existsSync(srtPath)) {
+                try {
+                  const srtContent = fs.readFileSync(srtPath, 'utf8');
+                  // Extract first occurrence of latitude/longitude
+                  const gpsMatch = srtContent.match(/\[latitude:\s*([\d.\-]+)\]\s*\[longitude:\s*([\d.\-]+)\]/);
+                  if (gpsMatch) {
+                    lat = parseFloat(gpsMatch[1]);
+                    lng = parseFloat(gpsMatch[2]);
+                  }
+                  // Extract first date from SRT (format: 2026-02-12 11:15:29.246)
+                  const dateMatch = srtContent.match(/(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/);
+                  if (dateMatch) {
+                    date = new Date(dateMatch[1]);
+                  }
+                  // Extract yaw if available
+                  const yawMatch = srtContent.match(/\[gb_yaw:\s*([\d.\-]+)\]/);
+                  if (yawMatch) {
+                    yaw = parseFloat(yawMatch[1]);
+                  }
+                } catch (srtErr) {
+                  console.error(`Error reading SRT for ${file}:`, srtErr.message);
+                }
+              }
+              if (!date) {
+                const stat = fs.statSync(file);
+                date = stat.mtime;
+              }
             }
           } catch (err) {
             console.error(`Error parsing metadata for ${file}:`, err.message);
@@ -102,6 +148,7 @@ app.get('/api/catalog', async (req, res) => {
             folder: path.basename(path.dirname(file)),
             type: isVideo ? 'video' : 'image',
             url: `/media/${urlPath}`,
+            thumbUrl: isVideo ? `/media/${urlPath}` : `/api/thumb/${urlPath}`,
             lat,
             lng,
             yaw,
@@ -126,7 +173,45 @@ app.get('/api/catalog', async (req, res) => {
   }
 });
 
-const PORT = 3002;
+// Endpoint to generate and serve thumbnails for images
+app.get(/^\/api\/thumb\/(.*)$/, async (req, res) => {
+  try {
+    const urlPath = req.params[0];
+    const originalPath = path.join(config.mediaBaseDir, decodeURIComponent(urlPath));
+
+    if (!fs.existsSync(originalPath)) {
+      return res.status(404).send('Not found');
+    }
+
+    const ext = path.extname(originalPath).toLowerCase();
+    
+    // We only resize images
+    if (ext !== '.jpg' && ext !== '.jpeg') {
+        return res.redirect(`/media/${urlPath}`);
+    }
+
+    // Generate a safe hash for the cached thumb filename
+    const hash = crypto.createHash('md5').update(originalPath).digest('hex');
+    const thumbPath = path.join(THUMB_CACHE_DIR, `${hash}.jpg`);
+
+    if (fs.existsSync(thumbPath)) {
+      return res.sendFile(thumbPath);
+    }
+
+    // Generate thumb on the fly and save
+    await sharp(originalPath)
+      .resize({ width: 256 })
+      .jpeg({ quality: 80 })
+      .toFile(thumbPath);
+
+    return res.sendFile(thumbPath);
+  } catch (err) {
+    console.error('Error serving thumb for:', req.params[0], err.message);
+    res.status(500).send('Error generating thumb');
+  }
+});
+
+const PORT = 3001;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

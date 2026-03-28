@@ -34,11 +34,11 @@ export default defineConfig({
     allowedHosts: ['haus35.3bbddns.com'],
     proxy: {
       '/api': {
-        target: 'http://localhost:3002',
+        target: 'http://localhost:3001',
         changeOrigin: true
       },
       '/media': {
-        target: 'http://localhost:3002',
+        target: 'http://localhost:3001',
         changeOrigin: true
       }
     }

@@ -14,7 +14,8 @@
   "description": "",
   "dependencies": {
     "concurrently": "^9.2.1",
-    "fast-glob": "^3.3.3"
+    "fast-glob": "^3.3.3",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

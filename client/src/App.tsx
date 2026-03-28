@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, forwardRef } from 'react'
 import { MapContainer, TileLayer, Marker, useMap } from 'react-leaflet'
 import L from 'leaflet'
-import { Camera, Video, MapPin, X, ChevronLeft, ChevronRight, Layers, RefreshCw, Navigation, Globe, Calendar } from 'lucide-react'
+import { Camera, Video, MapPin, X, ChevronLeft, ChevronRight, Layers, RefreshCw, Navigation, Globe, Calendar, Expand, Shrink, LocateFixed } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import '@photo-sphere-viewer/core/index.css'
 import { ReactPhotoSphereViewer } from 'react-photo-sphere-viewer'
@@ -14,6 +14,7 @@ import type { VirtuosoGridHandle } from 'react-virtuoso'
 // CSS fixes for cluster bounds and visibility
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import KmlOverlay from './KmlOverlay';
 
 interface MediaItem {
   id: string
@@ -21,6 +22,7 @@ interface MediaItem {
   folder: string
   type: 'image' | 'video'
   url: string
+  thumbUrl?: string
   lat: number | null
   lng: number | null
   yaw: number | null
@@ -70,6 +72,81 @@ function MapUpdater({ selectedItem }: { selectedItem: MediaItem | null }) {
   return null;
 }
 
+function MapResizer() {
+  const map = useMap();
+  useEffect(() => {
+    const container = map.getContainer();
+    
+    // Create a ResizeObserver to explicitly tell Leaflet the map size has changed
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+    };
+  }, [map]);
+  return null;
+}
+
+function CurrentLocationMarker() {
+  const [position, setPosition] = useState<L.LatLngExpression | null>(null);
+  const map = useMap();
+
+  useEffect(() => {
+    map.locate({ setView: false, watch: true, enableHighAccuracy: true });
+
+    map.on('locationfound', (e) => {
+      setPosition(e.latlng);
+    });
+
+    map.on('locationerror', (e) => {
+      console.warn("Location access denied or unavailable.");
+    });
+
+    return () => {
+      map.stopLocate();
+      map.off('locationfound');
+      map.off('locationerror');
+    };
+  }, [map]);
+
+  const icon = L.divIcon({
+    className: 'gps-marker-container',
+    html: `<div class="gps-dot"></div><div class="gps-pulse"></div>`,
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+  });
+
+  return position === null ? null : (
+    <Marker position={position} icon={icon} zIndexOffset={1000} />
+  );
+}
+
+function LocateControl() {
+  const map = useMap();
+  
+  return (
+    <div className="leaflet-bottom leaflet-right" style={{ marginBottom: '20px', marginRight: '10px', zIndex: 1000 }}>
+      <div className="leaflet-control leaflet-bar">
+        <a 
+          href="#" 
+          role="button" 
+          title="Show my location" 
+          onClick={(e) => {
+            e.preventDefault();
+            map.locate({ setView: true, maxZoom: 16, enableHighAccuracy: true });
+          }}
+          style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-panel)', color: 'var(--accent)', border: '1px solid var(--border-glass)', borderRadius: '4px' }}
+        >
+          <LocateFixed size={18} />
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [catalog, setCatalog] = useState<MediaItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -77,6 +154,8 @@ export default function App() {
   const [dateFilter, setDateFilter] = useState<string>('all')
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null)
   const [viewingItem, setViewingItem] = useState<MediaItem | null>(null)
+  const [catalogHidden, setCatalogHidden] = useState(false)
+  const [catalogFullScreen, setCatalogFullScreen] = useState(false)
   const gridRef = useRef<VirtuosoGridHandle>(null);
 
   const loadCatalog = (forceRefresh = false) => {
@@ -183,7 +262,7 @@ export default function App() {
     const isPano = item.isPano;
     const isActive = activeItem?.id === item.id;
     // We use the image itself as background if it's an image, or a placeholder/thumb if video.
-    const bgImage = item.type === 'image' ? item.url : 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&q=50&w=150';
+    const bgImage = item.type === 'image' ? (item.thumbUrl || item.url) : 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&q=50&w=150';
     
     return L.divIcon({
       className: `custom-marker ${isVideo ? 'video' : ''} ${isPano ? 'pano' : ''} ${isActive ? 'active' : ''}`,
@@ -246,6 +325,10 @@ export default function App() {
             maxZoom={20}
           />
           <MapUpdater selectedItem={activeItem} />
+          <MapResizer />
+          <CurrentLocationMarker />
+          <LocateControl />
+          <KmlOverlay />
 
           {/* Add markers using Cluster Group for performance */}
           <MarkerClusterGroup
@@ -346,26 +429,61 @@ export default function App() {
         )}
       </div>
 
+      {/* Sidebar Toggle Button */}
+      {!catalogFullScreen && (
+        <button
+          className={`sidebar-toggle ${catalogHidden ? 'sidebar-toggle--hidden' : ''}`}
+          onClick={() => setCatalogHidden(prev => !prev)}
+          title={catalogHidden ? 'Show Catalog' : 'Hide Catalog'}
+        >
+          {catalogHidden ? <ChevronLeft size={16} className="sidebar-toggle-icon" /> : <ChevronRight size={16} className="sidebar-toggle-icon" />}
+        </button>
+      )}
+
       {/* Sidebar Catalog */}
-      <div className="sidebar">
+      <div className={`sidebar ${catalogHidden ? 'sidebar--hidden' : ''} ${catalogFullScreen ? 'sidebar--fullscreen' : ''}`}>
         <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h1>Asset Catalog</h1>
             <p>{filteredCatalog.length} records found in database.</p>
           </div>
-          <button 
-            onClick={handleClearCache} 
-            title="Rebuild Cache"
-            style={{ 
-              background: 'transparent', 
-              border: 'none', 
-              color: 'var(--text-muted)', 
-              cursor: 'pointer',
-              padding: '0.25rem'
-            }}
-          >
-            <RefreshCw size={18} />
-          </button>
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            <button 
+              onClick={handleClearCache} 
+              title="Rebuild Cache"
+              style={{ 
+                background: 'transparent', 
+                border: 'none', 
+                color: 'var(--text-muted)', 
+                cursor: 'pointer',
+                padding: '0.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              <RefreshCw size={18} />
+            </button>
+            <button 
+              onClick={() => {
+                setCatalogFullScreen(prev => !prev);
+                if (catalogHidden) setCatalogHidden(false);
+              }} 
+              title={catalogFullScreen ? "Exit Full Screen" : "Full Screen"}
+              style={{ 
+                background: 'transparent', 
+                border: 'none', 
+                color: 'var(--text-muted)', 
+                cursor: 'pointer',
+                padding: '0.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {catalogFullScreen ? <Shrink size={18} /> : <Expand size={18} />}
+            </button>
+          </div>
         </div>
 
         <div className="filters">
@@ -451,7 +569,7 @@ export default function App() {
                   key={item.id} 
                   className={`catalog-item ${item.type === 'video' ? 'catalog-item-video' : ''} ${activeItem?.id === item.id ? 'catalog-item-active' : ''}`}
                   style={{
-                    backgroundImage: `url('${item.type === 'image' ? item.url : 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&q=50&w=300'}')`
+                    backgroundImage: `url('${item.type === 'image' ? (item.thumbUrl || item.url) : 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&q=50&w=300'}')`
                   }}
                   onClick={() => {
                     setActiveItem(item)
