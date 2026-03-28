@@ -101,7 +101,7 @@ function CurrentLocationMarker() {
       setPosition(e.latlng);
     });
 
-    map.on('locationerror', (e) => {
+    map.on('locationerror', () => {
       console.warn("Location access denied or unavailable.");
     });
 
