@@ -68,6 +68,7 @@ dev-dist/
 
 # Project specific caches and output
 server/catalog-cache.json
+server/thumbs/
 client/dist/
 client/dev-dist/
 client/dist-ssr/
