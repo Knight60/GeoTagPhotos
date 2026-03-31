@@ -28,6 +28,8 @@ interface MediaItem {
   yaw: number | null
   date: string | null
   isPano?: boolean
+  defaultYaw?: string | null
+  defaultPitch?: string | null
 }
 
 const gridComponents = {
@@ -72,6 +74,22 @@ function MapUpdater({ selectedItem }: { selectedItem: MediaItem | null }) {
   return null;
 }
 
+function MainMapUpdater({ selectedItem, isViewing }: { selectedItem: MediaItem | null, isViewing: boolean }) {
+  const map = useMap();
+
+  useEffect(() => {
+    // When the user opens an image viewer, fly to it
+    if (isViewing && selectedItem && selectedItem.lat && selectedItem.lng) {
+      map.flyTo([selectedItem.lat, selectedItem.lng], 16, {
+        animate: true,
+        duration: 1.0
+      });
+    }
+  }, [isViewing, selectedItem, map]);
+  
+  return null;
+}
+
 function MapResizer() {
   const map = useMap();
   useEffect(() => {
@@ -92,25 +110,25 @@ function MapResizer() {
 
 function CurrentLocationMarker() {
   const [position, setPosition] = useState<L.LatLngExpression | null>(null);
-  const map = useMap();
 
   useEffect(() => {
-    map.locate({ setView: false, watch: true, enableHighAccuracy: true });
+    // Silently watch position in background if supported and secure
+    if (!navigator.geolocation || window.isSecureContext === false) return;
 
-    map.on('locationfound', (e) => {
-      setPosition(e.latlng);
-    });
-
-    map.on('locationerror', () => {
-      console.warn("Location access denied or unavailable.");
-    });
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setPosition([pos.coords.latitude, pos.coords.longitude]);
+      },
+      (err) => {
+        console.warn("Location watch error:", err.message);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
 
     return () => {
-      map.stopLocate();
-      map.off('locationfound');
-      map.off('locationerror');
+      navigator.geolocation.clearWatch(watchId);
     };
-  }, [map]);
+  }, []);
 
   const icon = L.divIcon({
     className: 'gps-marker-container',
@@ -136,7 +154,28 @@ function LocateControl() {
           title="Show my location" 
           onClick={(e) => {
             e.preventDefault();
-            map.locate({ setView: true, maxZoom: 16, enableHighAccuracy: true });
+            if (window.isSecureContext === false) {
+              alert("ระบบระบุพิกัด GPS ของมือถือจำเป็นต้องใช้การเชื่อมต่อผ่านแบบเข้ารหัส (HTTPS) เท่านั้นครับ (เนื่องจากมาตรการปกป้องความเป็นส่วนตัวของเบราว์เซอร์)");
+              return;
+            }
+            if (!navigator.geolocation) {
+              alert("เบราว์เซอร์ไม่รองรับ GPS");
+              return;
+            }
+            
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                map.flyTo([pos.coords.latitude, pos.coords.longitude], 16, { animate: true, duration: 1.5 });
+              },
+              (err) => {
+                let msg = err.message;
+                if (err.code === err.PERMISSION_DENIED) msg = "คุณอาจจะปฏิเสธการขอเข้าถึงตำแหน่งไปเมื่อครู่ หรือยังไม่ได้เปิด Setting สิทธิ์ Location ในเครื่องครับ";
+                else if (err.code === err.POSITION_UNAVAILABLE) msg = "สัญญาณ GPS ไม่พร้อมใช้งาน";
+                else if (err.code === err.TIMEOUT) msg = "หมดเวลาการค้นหาสัญญาณ GPS ลองยืนในที่โล่งเพื่อหาสัญญาณครับ";
+                alert("ไม่สามารถรันระบบพิกัดได้: \n" + msg);
+              },
+              { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+            );
           }}
           style={{ width: '34px', height: '34px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-panel)', color: 'var(--accent)', border: '1px solid var(--border-glass)', borderRadius: '4px' }}
         >
@@ -154,9 +193,28 @@ export default function App() {
   const [dateFilter, setDateFilter] = useState<string>('all')
   const [activeItem, setActiveItem] = useState<MediaItem | null>(null)
   const [viewingItem, setViewingItem] = useState<MediaItem | null>(null)
+  const [showOverlay, setShowOverlay] = useState(false)
   const [catalogHidden, setCatalogHidden] = useState(false)
   const [catalogFullScreen, setCatalogFullScreen] = useState(false)
+  const [currentPanoYaw, setCurrentPanoYaw] = useState<number>(0)
   const gridRef = useRef<VirtuosoGridHandle>(null);
+  const viewerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const openViewerFor = (item: MediaItem, delay: boolean) => {
+    setActiveItem(item);
+    setViewingItem(item);
+    
+    if (viewerTimeoutRef.current) clearTimeout(viewerTimeoutRef.current);
+    
+    if (delay && item.lat !== null && item.lng !== null) {
+      setShowOverlay(false);
+      viewerTimeoutRef.current = setTimeout(() => {
+        setShowOverlay(true);
+      }, 1000);
+    } else {
+      setShowOverlay(true);
+    }
+  };
 
   const loadCatalog = (forceRefresh = false) => {
     setLoading(true);
@@ -242,8 +300,7 @@ export default function App() {
     if (!viewingItem) return
     const currentIndex = filteredCatalog.findIndex(item => item.id === viewingItem.id)
     if (currentIndex < filteredCatalog.length - 1) {
-      setViewingItem(filteredCatalog[currentIndex + 1])
-      setActiveItem(filteredCatalog[currentIndex + 1])
+      openViewerFor(filteredCatalog[currentIndex + 1], false)
     }
   }
 
@@ -251,8 +308,7 @@ export default function App() {
     if (!viewingItem) return
     const currentIndex = filteredCatalog.findIndex(item => item.id === viewingItem.id)
     if (currentIndex > 0) {
-      setViewingItem(filteredCatalog[currentIndex - 1])
-      setActiveItem(filteredCatalog[currentIndex - 1])
+      openViewerFor(filteredCatalog[currentIndex - 1], false)
     }
   }
 
@@ -324,7 +380,7 @@ export default function App() {
             url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
             maxZoom={20}
           />
-          <MapUpdater selectedItem={activeItem} />
+          <MainMapUpdater selectedItem={activeItem} isViewing={viewingItem !== null} />
           <MapResizer />
           <CurrentLocationMarker />
           <LocateControl />
@@ -344,10 +400,7 @@ export default function App() {
                 position={[item.lat!, item.lng!]}
                 icon={createIcon(item)}
                 eventHandlers={{
-                  click: () => {
-                    setActiveItem(item)
-                    setViewingItem(item)
-                  }
+                  click: () => openViewerFor(item, false)
                 }}
               />
             ))}
@@ -366,13 +419,15 @@ export default function App() {
         </div>
 
         {/* Fullscreen Media Viewer Modal */}
-        {viewingItem && (
+        {viewingItem && showOverlay && (
           <div className="viewer-overlay">
             <div className="viewer-header">
               <div className="viewer-title">{viewingItem.name}</div>
               <button className="close-btn" onClick={() => {
-                setViewingItem(null)
-                setActiveItem(null)
+                setViewingItem(null);
+                setShowOverlay(false);
+                setActiveItem(null);
+                if (viewerTimeoutRef.current) clearTimeout(viewerTimeoutRef.current);
               }}>
                 <X size={20} />
               </button>
@@ -390,6 +445,15 @@ export default function App() {
                       height={'100%'}
                       width={'100%'}
                       containerClass="pano-viewer"
+                      defaultYaw={viewingItem.defaultYaw || undefined}
+                      defaultPitch={viewingItem.defaultPitch || undefined}
+                      onReady={(instance: any) => {
+                        instance.addEventListener('position-updated', (e: any) => {
+                          const yawRad = e.position.yaw;
+                          const yawDeg = yawRad * 180 / Math.PI;
+                          setCurrentPanoYaw(yawDeg);
+                        });
+                      }}
                     />
                   ) : (
                     <img src={viewingItem.url} alt={viewingItem.name} />
@@ -397,6 +461,11 @@ export default function App() {
                   {viewingItem.yaw !== null && !viewingItem.isPano && (
                     <div className="viewer-north-arrow" style={{ transform: `rotate(${-viewingItem.yaw}deg)` }}>
                       <Navigation size={32} color="#fff" fill="#ef4444" strokeWidth={1} />
+                    </div>
+                  )}
+                  {viewingItem.isPano && (
+                    <div className="viewer-north-arrow" style={{ transform: `rotate(${-( (viewingItem.yaw || 0) + currentPanoYaw )}deg)` }}>
+                      <Navigation size={32} color="#fff" fill="#ea580c" strokeWidth={1} />
                     </div>
                   )}
                 </div>
@@ -572,8 +641,10 @@ export default function App() {
                     backgroundImage: `url('${item.type === 'image' ? (item.thumbUrl || item.url) : 'https://images.unsplash.com/photo-1542204165-65bf26472b9b?auto=format&fit=crop&q=50&w=300'}')`
                   }}
                   onClick={() => {
-                    setActiveItem(item)
-                    setViewingItem(item)
+                    if (catalogFullScreen) {
+                      setCatalogFullScreen(false);
+                    }
+                    openViewerFor(item, true);
                   }}
                 >
                   {item.type === 'video' && <Video color="#fff" fill="#000" size={16} style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }} />}

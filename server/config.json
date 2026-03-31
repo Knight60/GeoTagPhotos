@@ -8,6 +8,14 @@
     "E:/@ UAVs/DJI-Mini3 Pro @ 20260320",
     "E:/@ UAVs/DJI-Mini3 Pro @ 20260321",
     "E:/@ UAVs/DJI-Mini3 Pro @ 20260322",
-    "E:/@ UAVs/DJI-Mini3 Pro @ 20260323"
-  ]
+    "E:/@ UAVs/DJI-Mini3 Pro @ 20260323",
+    "E:/@ UAVs/DJI-Mini3 Pro @ 20260328",
+    "E:/@ UAVs/DJI-Mini3 Pro @ 20260329"
+  ],
+  "panoOverrides": {
+    "DJI_0690.JPG": {
+      "defaultYaw": "130deg",
+      "defaultPitch": "-10deg"
+    }
+  }
 }

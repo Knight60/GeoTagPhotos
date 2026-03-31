@@ -142,9 +142,12 @@ app.get('/api/catalog', async (req, res) => {
             console.error(`Error parsing metadata for ${file}:`, err.message);
           }
 
+          const fileName = path.basename(file);
+          const override = currentConfig.panoOverrides && currentConfig.panoOverrides[fileName];
+
           catalog.push({
             id: Buffer.from(file).toString('base64'),
-            name: path.basename(file),
+            name: fileName,
             folder: path.basename(path.dirname(file)),
             type: isVideo ? 'video' : 'image',
             url: `/media/${urlPath}`,
@@ -154,6 +157,8 @@ app.get('/api/catalog', async (req, res) => {
             yaw,
             date,
             isPano,
+            defaultYaw: override ? override.defaultYaw : null,
+            defaultPitch: override ? override.defaultPitch : null,
           });
         }));
       }
