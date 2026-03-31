@@ -200,9 +200,141 @@ export default function App() {
   const gridRef = useRef<VirtuosoGridHandle>(null);
   const viewerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Image zoom & pan state
+  const [imgZoom, setImgZoom] = useState(1);
+  const [imgOffset, setImgOffset] = useState({ x: 0, y: 0 });
+  const imgDragging = useRef(false);
+  const imgDragStart = useRef({ x: 0, y: 0 });
+  const imgOffsetStart = useRef({ x: 0, y: 0 });
+  const imgContainerRef = useRef<HTMLDivElement>(null);
+  // We need refs to track latest values inside native listeners
+  const imgZoomRef = useRef(1);
+  const imgOffsetRef = useRef({ x: 0, y: 0 });
+  imgZoomRef.current = imgZoom;
+  imgOffsetRef.current = imgOffset;
+
+  // Attach native event listeners to bypass default-passive-events
+  useEffect(() => {
+    const el = imgContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? -0.15 : 0.15;
+      setImgZoom(prev => {
+        const next = Math.min(Math.max(prev + delta, 0.5), 10);
+        if (next <= 1) setImgOffset({ x: 0, y: 0 });
+        return next;
+      });
+    };
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (imgZoomRef.current > 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        imgDragging.current = true;
+        imgDragStart.current = { x: e.clientX, y: e.clientY };
+        imgOffsetStart.current = { ...imgOffsetRef.current };
+        el.style.cursor = 'grabbing';
+      }
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (imgDragging.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        const dx = e.clientX - imgDragStart.current.x;
+        const dy = e.clientY - imgDragStart.current.y;
+        setImgOffset({
+          x: imgOffsetStart.current.x + dx,
+          y: imgOffsetStart.current.y + dy
+        });
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (imgDragging.current) {
+        e.stopPropagation();
+        imgDragging.current = false;
+        el.style.cursor = imgZoomRef.current > 1 ? 'grab' : 'zoom-in';
+      }
+    };
+
+    const handleMouseLeave = () => {
+      if (imgDragging.current) {
+        imgDragging.current = false;
+        el.style.cursor = imgZoomRef.current > 1 ? 'grab' : 'zoom-in';
+      }
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (imgZoomRef.current > 1 && e.touches.length === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        imgDragging.current = true;
+        imgDragStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        imgOffsetStart.current = { ...imgOffsetRef.current };
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (imgDragging.current && e.touches.length === 1) {
+        e.preventDefault();
+        e.stopPropagation();
+        const dx = e.touches[0].clientX - imgDragStart.current.x;
+        const dy = e.touches[0].clientY - imgDragStart.current.y;
+        setImgOffset({
+          x: imgOffsetStart.current.x + dx,
+          y: imgOffsetStart.current.y + dy
+        });
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      if (imgDragging.current) {
+        e.stopPropagation();
+        imgDragging.current = false;
+      }
+    };
+
+    const handleDblClick = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setImgZoom(1);
+      setImgOffset({ x: 0, y: 0 });
+      el.style.cursor = 'zoom-in';
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    el.addEventListener('mousedown', handleMouseDown, { passive: false });
+    el.addEventListener('mousemove', handleMouseMove, { passive: false });
+    el.addEventListener('mouseup', handleMouseUp, { passive: false });
+    el.addEventListener('mouseleave', handleMouseLeave);
+    el.addEventListener('touchstart', handleTouchStart, { passive: false });
+    el.addEventListener('touchmove', handleTouchMove, { passive: false });
+    el.addEventListener('touchend', handleTouchEnd, { passive: false });
+    el.addEventListener('dblclick', handleDblClick);
+
+    return () => {
+      el.removeEventListener('wheel', handleWheel);
+      el.removeEventListener('mousedown', handleMouseDown);
+      el.removeEventListener('mousemove', handleMouseMove);
+      el.removeEventListener('mouseup', handleMouseUp);
+      el.removeEventListener('mouseleave', handleMouseLeave);
+      el.removeEventListener('touchstart', handleTouchStart);
+      el.removeEventListener('touchmove', handleTouchMove);
+      el.removeEventListener('touchend', handleTouchEnd);
+      el.removeEventListener('dblclick', handleDblClick);
+    };
+  }, [viewingItem, showOverlay]);
+
   const openViewerFor = (item: MediaItem, delay: boolean) => {
     setActiveItem(item);
     setViewingItem(item);
+    // Reset zoom/pan when opening a new image
+    setImgZoom(1);
+    setImgOffset({ x: 0, y: 0 });
     
     if (viewerTimeoutRef.current) clearTimeout(viewerTimeoutRef.current);
     
@@ -456,7 +588,23 @@ export default function App() {
                       }}
                     />
                   ) : (
-                    <img src={viewingItem.url} alt={viewingItem.name} />
+                    <div
+                      ref={imgContainerRef}
+                      className="img-zoom-container"
+                      style={{ cursor: imgZoom > 1 ? 'grab' : 'zoom-in' }}
+                    >
+                      <img
+                        src={viewingItem.url}
+                        alt={viewingItem.name}
+                        draggable={false}
+                        style={{
+                          transform: `scale(${imgZoom}) translate(${imgOffset.x / imgZoom}px, ${imgOffset.y / imgZoom}px)`,
+                          transformOrigin: 'center center',
+                          transition: imgDragging.current ? 'none' : 'transform 0.15s ease-out',
+                          userSelect: 'none'
+                        }}
+                      />
+                    </div>
                   )}
                   {viewingItem.yaw !== null && !viewingItem.isPano && (
                     <div className="viewer-north-arrow" style={{ transform: `rotate(${-viewingItem.yaw}deg)` }}>
